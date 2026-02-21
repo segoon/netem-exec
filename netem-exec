@@ -182,6 +182,7 @@ class DevRunner(Runner):
         run(['tc', 'qdisc', 'del', 'dev', dev, 'root'], sudo=sudo)
 
 
+# TODO: not working yet
 class ClassRunner(Runner):
     def __init__(self, quiet: bool):
         self._quiet = quiet
