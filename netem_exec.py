@@ -3,17 +3,18 @@
 import os
 import subprocess
 import sys
+from typing import List
 
 
-def run(*args):
-    cmd = list(args)
+def run(*args: str) -> None:
+    cmd: List[str] = list(args)
     result = subprocess.run(cmd)
     if result.returncode != 0:
         print(f"Error: '{' '.join(cmd)}' exited with exit code {result.returncode}", file=sys.stderr)
         sys.exit(result.returncode)
 
 
-def is_net_cls_mounted():
+def is_net_cls_mounted() -> bool:
     with open('/proc/mounts', 'r') as f:
         for line in f:
             if line.startswith('net_cls /sys/fs/cgroup/net_cls cgroup '):
@@ -21,24 +22,24 @@ def is_net_cls_mounted():
     return False
 
 
-def write_file(path, value):
+def write_file(path: str, value: str) -> None:
     with open(path, 'w') as f:
         f.write(value)
 
 
-def get_default_dev():
+def get_default_dev() -> str:
     result = subprocess.run(
         ['ip', 'route', 'get', '8.8.8.8'],
         capture_output=True,
         text=True,
         check=True,
     )
-    tokens = result.stdout.split()
-    idx = tokens.index('dev')
+    tokens: List[str] = result.stdout.split()
+    idx: int = tokens.index('dev')
     return tokens[idx + 1]
 
 
-def cleanup(dev):
+def cleanup(dev: str) -> None:
     subprocess.run(['tc', 'qdisc', 'del', 'dev', dev, 'root'])
 
 
@@ -72,7 +73,7 @@ def main():
     run('tc', 'qdisc', 'replace', 'dev', dev, 'parent', '1:1', 'netem', 'delay', '60ms')
 
     try:
-        sys.exit(subprocess.run(['cgexec', '-g', 'net_cls:test', 'ping', 'ya.ru']).returncode)
+        sys.exit(subprocess.run(['cgexec', '-g', 'net_cls:test'] + sys.argv[1:]).returncode)
     finally:
         cleanup(dev)
 
