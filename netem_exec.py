@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 
+import argparse
 import os
 import subprocess
 import sys
@@ -43,7 +44,32 @@ def cleanup(dev: str) -> None:
     subprocess.run(['tc', 'qdisc', 'del', 'dev', dev, 'root'])
 
 
-def main():
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description='Run a command with netem network emulation applied.',
+    )
+    parser.add_argument(
+        '--netem',
+        required=True,
+        help='netem options, e.g. "delay 100ms loss 1%%"',
+    )
+    parser.add_argument(
+        'command',
+        nargs=argparse.REMAINDER,
+        help='command to run (use -- to separate from netem options)',
+    )
+    args = parser.parse_args()
+    if args.command and args.command[0] == '--':
+        args.command = args.command[1:]
+    if not args.command:
+        parser.error('a command to run is required')
+    return args
+
+
+def main() -> None:
+    args = parse_args()
+    netem_opts: List[str] = args.netem.split()
+
     print("Init cgroup...", file=sys.stderr)
 
     dev = get_default_dev()
@@ -70,10 +96,10 @@ def main():
     write_file('/sys/fs/cgroup/net_cls/net_cls.classid', '0x10002')
     write_file('/sys/fs/cgroup/net_cls/test/net_cls.classid', '0x10001')
 
-    run('tc', 'qdisc', 'replace', 'dev', dev, 'parent', '1:1', 'netem', 'delay', '60ms')
+    run('tc', 'qdisc', 'replace', 'dev', dev, 'parent', '1:1', 'netem', *netem_opts)
 
     try:
-        sys.exit(subprocess.run(['cgexec', '-g', 'net_cls:test'] + sys.argv[1:]).returncode)
+        sys.exit(subprocess.run(['cgexec', '-g', 'net_cls:test'] + args.command).returncode)
     finally:
         cleanup(dev)
 
