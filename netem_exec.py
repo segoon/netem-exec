@@ -7,10 +7,11 @@ import sys
 from typing import List
 
 
-def run(args: List[str]) -> None:
-    result = subprocess.run(args)
+def run(args: List[str], sudo: bool) -> None:
+    cmd = ['sudo'] + args if sudo else args
+    result = subprocess.run(cmd)
     if result.returncode != 0:
-        print(f"Error: '{' '.join(args)}' exited with exit code {result.returncode}", file=sys.stderr)
+        print(f"Error: '{' '.join(cmd)}' exited with exit code {result.returncode}", file=sys.stderr)
         sys.exit(result.returncode)
 
 
@@ -23,8 +24,9 @@ def is_net_cls_mounted() -> bool:
 
 
 def write_file(path: str, value: str) -> None:
-    with open(path, 'w') as f:
-        f.write(value)
+    if os.system(f'echo "{value}" | sudo tee "{path}" >/dev/null') != 0:
+        print(f"Error: failed to write to file '{path}'", file=sys.stderr)
+        sys.exit(1)
 
 
 def get_default_dev() -> str:
@@ -35,10 +37,6 @@ def get_default_dev() -> str:
     tokens = stdout.split()
     idx = tokens.index('dev')
     return tokens[idx + 1]
-
-
-def cleanup(dev: str) -> None:
-    subprocess.run(['tc', 'qdisc', 'del', 'dev', dev, 'root'])
 
 
 def parse_args() -> argparse.Namespace:
@@ -89,6 +87,12 @@ def parse_args() -> argparse.Namespace:
         nargs='+',
         metavar=('PERCENT', 'CORRELATION'),
         help='reorder PERCENT [CORRELATION], e.g. --reorder 25%% (requires --delay)',
+    )
+    parser.add_argument(
+        '-s',
+        '--sudo',
+        action='store_true',
+        help='run privileged commands with sudo',
     )
     parser.add_argument(
         '-i',
@@ -155,33 +159,37 @@ def main() -> None:
         dev = get_default_dev()
         log(f"Using network interface: {dev}")
 
-    run(['modprobe', 'cls_cgroup'])
-    run(['mkdir', '-p', '/sys/fs/cgroup/net_cls'])
+    sudo = args.sudo
+
+    run(['modprobe', 'cls_cgroup'], sudo=sudo)
+    run(['mkdir', '-p', '/sys/fs/cgroup/net_cls'], sudo=sudo)
 
     if not is_net_cls_mounted():
-        run(['mount', '-t', 'cgroup', '-o', 'net_cls', 'net_cls', '/sys/fs/cgroup/net_cls'])
+        run(['mount', '-t', 'cgroup', '-o', 'net_cls', 'net_cls', '/sys/fs/cgroup/net_cls'], sudo=sudo)
 
-    run(['cgcreate', '-g', 'net_cls:test'])
+    run(['cgcreate', '-g', 'net_cls:test'], sudo=sudo)
+    run(['chown', f'{os.getuid()}:{os.getgid()}', '/sys/fs/cgroup/net_cls/test/tasks'], sudo=sudo)
 
     # Delete existing qdisc, ignore errors
+    prefix = ['sudo'] if sudo else []
     subprocess.run(
-        ['tc', 'qdisc', 'del', 'dev', dev, 'root'],
+        prefix + ['tc', 'qdisc', 'del', 'dev', dev, 'root'],
         stderr=subprocess.DEVNULL,
     )
 
-    run(['tc', 'qdisc', 'add', 'dev', dev, 'root', 'handle', '1:', 'prio'])
-    run(['tc', 'filter', 'add', 'dev', dev, 'handle', '1:1', 'cgroup'])
+    run(['tc', 'qdisc', 'add', 'dev', dev, 'root', 'handle', '1:', 'prio'], sudo=sudo)
+    run(['tc', 'filter', 'add', 'dev', dev, 'handle', '1:1', 'cgroup'], sudo=sudo)
 
     write_file('/sys/fs/cgroup/net_cls/net_cls.classid', '0x10002')
     write_file('/sys/fs/cgroup/net_cls/test/net_cls.classid', '0x10001')
 
     log(f"netem opts: {' '.join(netem_opts)}")
-    run(['tc', 'qdisc', 'replace', 'dev', dev, 'parent', '1:1', 'netem'] + netem_opts)
+    run(['tc', 'qdisc', 'replace', 'dev', dev, 'parent', '1:1', 'netem'] + netem_opts, sudo=sudo)
 
     try:
         sys.exit(subprocess.run(['cgexec', '-g', 'net_cls:test'] + args.command).returncode)
     finally:
-        cleanup(dev)
+        run(['tc', 'qdisc', 'del', 'dev', dev, 'root'], sudo=sudo)
 
 
 if __name__ == '__main__':
