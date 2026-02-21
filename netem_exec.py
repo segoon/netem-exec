@@ -26,12 +26,27 @@ def write_file(path, value):
         f.write(value)
 
 
-def cleanup():
-    subprocess.run(['tc', 'qdisc', 'del', 'dev', 'tun0', 'root'])
+def get_default_dev():
+    result = subprocess.run(
+        ['ip', 'route', 'get', '8.8.8.8'],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    tokens = result.stdout.split()
+    idx = tokens.index('dev')
+    return tokens[idx + 1]
+
+
+def cleanup(dev):
+    subprocess.run(['tc', 'qdisc', 'del', 'dev', dev, 'root'])
 
 
 def main():
     print("Init cgroup...", file=sys.stderr)
+
+    dev = get_default_dev()
+    print(f"Using network device: {dev}", file=sys.stderr)
 
     run('modprobe', 'cls_cgroup')
     run('mkdir', '-p', '/sys/fs/cgroup/net_cls')
@@ -43,23 +58,23 @@ def main():
 
     # Delete existing qdisc, ignore errors
     subprocess.run(
-        ['tc', 'qdisc', 'del', 'dev', 'tun0', 'root'],
+        ['tc', 'qdisc', 'del', 'dev', dev, 'root'],
         stderr=subprocess.DEVNULL,
     )
 
-    run('tc', 'qdisc', 'add', 'dev', 'tun0', 'root', 'handle', '1:', 'prio')
-    run('tc', 'filter', 'add', 'dev', 'tun0', 'handle', '1:1', 'cgroup')
+    run('tc', 'qdisc', 'add', 'dev', dev, 'root', 'handle', '1:', 'prio')
+    run('tc', 'filter', 'add', 'dev', dev, 'handle', '1:1', 'cgroup')
 
     # TODO: status
     write_file('/sys/fs/cgroup/net_cls/net_cls.classid', '0x10002')
     write_file('/sys/fs/cgroup/net_cls/test/net_cls.classid', '0x10001')
 
-    run('tc', 'qdisc', 'replace', 'dev', 'tun0', 'parent', '1:1', 'netem', 'delay', '60ms')
+    run('tc', 'qdisc', 'replace', 'dev', dev, 'parent', '1:1', 'netem', 'delay', '60ms')
 
     try:
         sys.exit(subprocess.run(['cgexec', '-g', 'net_cls:test', 'ping', 'ya.ru']).returncode)
     finally:
-        cleanup()
+        cleanup(dev)
 
 
 if __name__ == '__main__':
