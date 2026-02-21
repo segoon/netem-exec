@@ -3,6 +3,11 @@
 `netem-exec` is a simple command runner under [tc-netem(8)](https://manpages.debian.org/testing/iproute2/tc-netem.8.en.html).
 It can emulate network delays, jitter, packet loss, etc.
 
+Note: `netem-exec` requires root. You may run it in two modes:
+- You run it under root. The subcommand runs under root too.
+- You run it under non-root and pass `--sudo` argument. All privileged commands run under root (e.g. `tc`), but the subcommand runs under the current user (unprivileged).
+
+
 # Examples
 
 Ping with no delay:
