@@ -89,6 +89,12 @@ def parse_args() -> argparse.Namespace:
         help='reorder PERCENT [CORRELATION], e.g. --reorder 25%% (requires --delay)',
     )
     parser.add_argument(
+        '-i',
+        '--interface',
+        metavar='DEVICE',
+        help='network device to apply netem on (default: from `ip route get 8.8.8.8`)',
+    )
+    parser.add_argument(
         '-q',
         '--quiet',
         action='store_true',
@@ -139,10 +145,12 @@ def main() -> None:
         if not args.quiet:
             print(msg, file=sys.stderr)
 
-    dev = get_default_dev()
-    log(f"Using network device: {dev}")
+    if args.interface:
+        dev = args.interface
+    else:
+        dev = get_default_dev()
+        log(f"Using network interface: {dev}")
 
-    log("Init cgroups...")
     run('modprobe', 'cls_cgroup')
     run('mkdir', '-p', '/sys/fs/cgroup/net_cls')
 
