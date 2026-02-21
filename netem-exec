@@ -4,21 +4,25 @@ import argparse
 import os
 import subprocess
 import sys
+import pathlib
 from typing import List
 
 
 def run(args: List[str], sudo: bool) -> None:
-    cmd = ['sudo'] + args if sudo else args
+    cmd = ["sudo"] + args if sudo else args
     result = subprocess.run(cmd)
     if result.returncode != 0:
-        print(f"Error: '{' '.join(cmd)}' exited with exit code {result.returncode}", file=sys.stderr)
+        print(
+            f"Error: '{' '.join(cmd)}' exited with exit code {result.returncode}",
+            file=sys.stderr,
+        )
         sys.exit(result.returncode)
 
 
 def is_net_cls_mounted() -> bool:
-    with open('/proc/mounts', 'r') as f:
+    with open("/proc/mounts", "r") as f:
         for line in f:
-            if line.startswith('net_cls /sys/fs/cgroup/net_cls cgroup '):
+            if line.startswith("net_cls /sys/fs/cgroup/net_cls cgroup "):
                 return True
     return False
 
@@ -31,116 +35,125 @@ def write_file(path: str, value: str) -> None:
 
 def get_default_dev() -> str:
     stdout = subprocess.check_output(
-        ['ip', 'route', 'get', '8.8.8.8'],
-        encoding='utf-8',
+        ["ip", "route", "get", "8.8.8.8"],
+        encoding="utf-8",
     )
     tokens = stdout.split()
-    idx = tokens.index('dev')
+    idx = tokens.index("dev")
     return tokens[idx + 1]
+
+
+def get_qdisc_id(dev: str) -> str:
+    stdout = subprocess.check_output(
+        ["tc", "qdisc", "show", "dev", dev],
+        encoding="utf-8",
+    )
+    tokens = stdout.split()
+    return tokens[2]
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description='Run a command with netem network emulation applied.',
+        description="Run a command with netem network emulation applied.",
     )
     parser.add_argument(
-        '--delay',
-        nargs='+',
-        metavar=('TIME', 'JITTER'),
-        help='delay TIME [JITTER [CORRELATION]], e.g. --delay 100ms 10ms',
+        "--delay",
+        nargs="+",
+        metavar=("TIME", "JITTER"),
+        help="delay TIME [JITTER [CORRELATION]], e.g. --delay 100ms 10ms",
     )
     parser.add_argument(
-        '--distribution',
-        choices=['uniform', 'normal', 'pareto', 'paretonormal'],
-        help='delay distribution (requires --delay)',
+        "--distribution",
+        choices=["uniform", "normal", "pareto", "paretonormal"],
+        help="delay distribution (requires --delay)",
     )
     parser.add_argument(
-        '--loss',
-        nargs='+',
-        metavar=('PERCENT', 'CORRELATION'),
-        help='loss PERCENT [CORRELATION], e.g. --loss 1%%',
+        "--loss",
+        nargs="+",
+        metavar=("PERCENT", "CORRELATION"),
+        help="loss PERCENT [CORRELATION], e.g. --loss 1%%",
     )
     parser.add_argument(
-        '--duplicate',
-        nargs='+',
-        metavar=('PERCENT', 'CORRELATION'),
-        help='duplicate PERCENT [CORRELATION], e.g. --duplicate 0.1%%',
+        "--duplicate",
+        nargs="+",
+        metavar=("PERCENT", "CORRELATION"),
+        help="duplicate PERCENT [CORRELATION], e.g. --duplicate 0.1%%",
     )
     parser.add_argument(
-        '--corrupt',
-        nargs='+',
-        metavar=('PERCENT', 'CORRELATION'),
-        help='corrupt PERCENT [CORRELATION], e.g. --corrupt 0.1%%',
+        "--corrupt",
+        nargs="+",
+        metavar=("PERCENT", "CORRELATION"),
+        help="corrupt PERCENT [CORRELATION], e.g. --corrupt 0.1%%",
     )
     parser.add_argument(
-        '--gap',
-        metavar='DISTANCE',
-        help='gap DISTANCE, e.g. --gap 5',
+        "--gap",
+        metavar="DISTANCE",
+        help="gap DISTANCE, e.g. --gap 5",
     )
     parser.add_argument(
-        '--rate',
-        metavar='RATE',
-        help='rate limit, e.g. --rate 1mbit',
+        "--rate",
+        metavar="RATE",
+        help="rate limit, e.g. --rate 1mbit",
     )
     parser.add_argument(
-        '--reorder',
-        nargs='+',
-        metavar=('PERCENT', 'CORRELATION'),
-        help='reorder PERCENT [CORRELATION], e.g. --reorder 25%% (requires --delay)',
+        "--reorder",
+        nargs="+",
+        metavar=("PERCENT", "CORRELATION"),
+        help="reorder PERCENT [CORRELATION], e.g. --reorder 25%% (requires --delay)",
     )
     parser.add_argument(
-        '-s',
-        '--sudo',
-        action='store_true',
-        help='run privileged commands with sudo',
+        "-s",
+        "--sudo",
+        action="store_true",
+        help="run privileged commands with sudo",
     )
     parser.add_argument(
-        '-i',
-        '--interface',
-        metavar='DEVICE',
-        help='network device to apply netem on (default: from `ip route get 8.8.8.8`)',
+        "-i",
+        "--interface",
+        metavar="DEVICE",
+        help="network device to apply netem on (default: from `ip route get 8.8.8.8`)",
     )
     parser.add_argument(
-        '-q',
-        '--quiet',
-        action='store_true',
-        help='suppress informational output to stderr',
+        "-q",
+        "--quiet",
+        action="store_true",
+        help="suppress informational output to stderr",
     )
     parser.add_argument(
-        'command',
+        "command",
         nargs=argparse.REMAINDER,
-        help='command to run (use -- to separate from netem options)',
+        help="command to run (use -- to separate from netem options)",
     )
     args = parser.parse_args()
-    if args.command and args.command[0] == '--':
+    if args.command and args.command[0] == "--":
         args.command = args.command[1:]
     if not args.command:
-        parser.error('a command to run is required')
+        parser.error("a command to run is required")
     if args.distribution and not args.delay:
-        parser.error('--distribution requires --delay')
+        parser.error("--distribution requires --delay")
     if args.reorder and not args.delay:
-        parser.error('--reorder requires --delay')
+        parser.error("--reorder requires --delay")
     return args
 
 
 def build_netem_opts(args: argparse.Namespace) -> List[str]:
     opts: List[str] = []
     if args.delay:
-        opts += ['delay'] + args.delay
+        opts += ["delay"] + args.delay
     if args.distribution:
-        opts += ['distribution', args.distribution]
+        opts += ["distribution", args.distribution]
     if args.loss:
-        opts += ['loss'] + args.loss
+        opts += ["loss"] + args.loss
     if args.duplicate:
-        opts += ['duplicate'] + args.duplicate
+        opts += ["duplicate"] + args.duplicate
     if args.corrupt:
-        opts += ['corrupt'] + args.corrupt
+        opts += ["corrupt"] + args.corrupt
     if args.gap:
-        opts += ['gap', args.gap]
+        opts += ["gap", args.gap]
     if args.rate:
-        opts += ['rate', args.rate]
+        opts += ["rate", args.rate]
     if args.reorder:
-        opts += ['reorder'] + args.reorder
+        opts += ["reorder"] + args.reorder
 
     return opts
 
@@ -169,66 +182,143 @@ class DevRunner(Runner):
 
     def prepare(self, dev: str, netem_opts: list[str], sudo: bool):
         # Delete existing qdisc, ignore errors
-        prefix = ['sudo'] if sudo else []
+        prefix = ["sudo"] if sudo else []
         subprocess.run(
-            prefix + ['tc', 'qdisc', 'del', 'dev', dev, 'root'],
+            prefix + ["tc", "qdisc", "del", "dev", dev, "root"],
             stderr=subprocess.DEVNULL,
         )
 
         self.log(f"netem opts: {' '.join(netem_opts)}")
-        run(['tc', 'qdisc', 'add', 'dev', dev, 'root', 'netem'] + netem_opts, sudo=sudo)
+        run(["tc", "qdisc", "add", "dev", dev, "root", "netem"] + netem_opts, sudo=sudo)
 
     def cleanup(self, dev: str, sudo: bool):
-        run(['tc', 'qdisc', 'del', 'dev', dev, 'root'], sudo=sudo)
+        run(["tc", "qdisc", "del", "dev", dev, "root"], sudo=sudo)
 
 
-# TODO: not working yet
 class ClassRunner(Runner):
     def __init__(self, quiet: bool):
         self._quiet = quiet
+        self._parent_cgroup = self.get_cgroup()
+        self._child_cgroup = f"{self._parent_cgroup}/netem-{os.getpid()}"
 
     def log(self, msg: str):
         if not self._quiet:
             print(msg, file=sys.stderr)
 
     def run(self, command: list[str]) -> int:
-        return subprocess.run(['cgexec', '-g', 'net_cls:test'] + command).returncode
+        return subprocess.run(["cgexec", "-g", "net_cls:test"] + command).returncode
+
+    def get_cgroup(self) -> str:
+        for line in pathlib.Path("/proc/self/cgroup").read_text().splitlines():
+            parts = line.split(":")
+            if parts[1] in ("", "pids"):
+                return parts[2].strip()
+
+        print(f"Error: failed to get current cgroup", file=sys.stderr)
+        sys.exit(1)
 
     def prepare(self, dev: str, netem_opts: list[str], sudo: bool):
-        run(['modprobe', 'cls_cgroup'], sudo=sudo)
-        run(['mkdir', '-p', '/sys/fs/cgroup/net_cls'], sudo=sudo)
-
-        if not is_net_cls_mounted():
-            run(['mount', '-t', 'cgroup', '-o', 'net_cls', 'net_cls', '/sys/fs/cgroup/net_cls'], sudo=sudo)
-
-        run(['cgcreate', '-g', 'net_cls:test'], sudo=sudo)
-        run(['chown', f'{os.getuid()}:{os.getgid()}', '/sys/fs/cgroup/net_cls/test/tasks'], sudo=sudo)
-
         # Delete existing qdisc, ignore errors
-        prefix = ['sudo'] if sudo else []
+        prefix = ["sudo"] if sudo else []
         subprocess.run(
-            prefix + ['tc', 'qdisc', 'del', 'dev', dev, 'root'],
+            prefix + ["tc", "qdisc", "del", "dev", dev, "root"],
             stderr=subprocess.DEVNULL,
         )
 
-        run(['tc', 'qdisc', 'add', 'dev', dev, 'root', 'handle', '1:', 'prio'], sudo=sudo)
-        run(['tc', 'filter', 'add', 'dev', dev, 'handle', '1:1', 'cgroup'], sudo=sudo)
+        # Create group for self
+        cgroup = pathlib.Path(f"/sys/fs/cgroup/{self._child_cgroup}")
+        cgroup.mkdir()
+        (cgroup / "cgroup.procs").write_text(str(os.getpid()))
 
-        write_file('/sys/fs/cgroup/net_cls/net_cls.classid', '0x10002')
-        write_file('/sys/fs/cgroup/net_cls/test/net_cls.classid', '0x10001')
+        run(
+            [
+                "tc",
+                "qdisc",
+                "add",
+                "dev",
+                dev,
+                "root",
+                "htb",
+                "default",
+                "0",
+            ],
+            sudo=sudo,
+        )
+
+        qdisc_id = get_qdisc_id(dev)
+
+        # if False:
+        if True:
+            run(
+                [
+                    "tc",
+                    "class",
+                    "add",
+                    "dev",
+                    dev,
+                    "parent",
+                    qdisc_id,
+                    "classid",
+                    f"{qdisc_id}2",
+                    "htb",
+                    "rate",
+                    "200kbit",
+                ],
+                sudo=sudo,
+            )
+
+        run(
+            [
+                "iptables",
+                "-A",
+                "OUTPUT",
+                "-p",
+                "tcp",
+                "-m",
+                "cgroup",
+                "--path",
+                self._child_cgroup,
+                "-j",
+                "CLASSIFY",
+                "--set-class",
+                f"{qdisc_id}2",
+            ],
+            sudo=sudo,
+        )
 
         self.log(f"netem opts: {' '.join(netem_opts)}")
-        run(['tc', 'qdisc', 'replace', 'dev', dev, 'parent', '1:1', 'netem'] + netem_opts, sudo=sudo)
+        run(
+            [
+                "tc",
+                "qdisc",
+                "add",
+                "dev",
+                dev,
+                "parent",
+                f"{qdisc_id}2",
+                "handle",
+                "1002:",
+                "netem",
+            ]
+            + netem_opts,
+            sudo=sudo,
+        )
 
     def cleanup(self, dev: str, sudo: bool):
-        run(['tc', 'qdisc', 'del', 'dev', dev, 'root'], sudo=sudo)
+        run(["tc", "qdisc", "del", "dev", dev, "root"], sudo=sudo)
+
+        pathlib.Path(f"/sys/fs/cgroup/{self._parent_cgroup}/cgroup.procs").write_text(
+            str(os.getpid())
+        )
+        pathlib.Path(f"/sys/fs/cgroup/{self._child_cgroup}").rmdir()
 
 
 def main() -> None:
     args = parse_args()
     netem_opts = build_netem_opts(args)
 
-    runner = DevRunner(args.quiet)
+    # runner = DevRunner(args.quiet)
+    runner = ClassRunner(args.quiet)
 
     if args.interface:
         dev = args.interface
@@ -245,7 +335,7 @@ def main() -> None:
         runner.cleanup(dev=dev, sudo=sudo)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     try:
         main()
     except KeyboardInterrupt:
