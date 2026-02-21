@@ -145,51 +145,77 @@ def build_netem_opts(args: argparse.Namespace) -> List[str]:
     return opts
 
 
+class Runner:
+    def run(self, command: list[str]) -> int:
+        raise NotImplemented
+
+    def prepare(self, dev: str, netem_opts: list[str], sudo: bool):
+        raise NotImplemented
+
+    def cleanup(self, dev: str, sudo: bool):
+        raise NotImplemented
+
+
+class DevRunner:
+    def __init__(self, quiet: bool):
+        self._quiet = quiet
+
+    def log(self, msg: str):
+        if not self._quiet:
+            print(msg, file=sys.stderr)
+
+    def run(self, command: list[str]) -> int:
+        return subprocess.run(['cgexec', '-g', 'net_cls:test'] + command).returncode
+
+    def prepare(self, dev: str, netem_opts: list[str], sudo: bool):
+        run(['modprobe', 'cls_cgroup'], sudo=sudo)
+        run(['mkdir', '-p', '/sys/fs/cgroup/net_cls'], sudo=sudo)
+
+        if not is_net_cls_mounted():
+            run(['mount', '-t', 'cgroup', '-o', 'net_cls', 'net_cls', '/sys/fs/cgroup/net_cls'], sudo=sudo)
+
+        run(['cgcreate', '-g', 'net_cls:test'], sudo=sudo)
+        run(['chown', f'{os.getuid()}:{os.getgid()}', '/sys/fs/cgroup/net_cls/test/tasks'], sudo=sudo)
+
+        # Delete existing qdisc, ignore errors
+        prefix = ['sudo'] if sudo else []
+        subprocess.run(
+            prefix + ['tc', 'qdisc', 'del', 'dev', dev, 'root'],
+            stderr=subprocess.DEVNULL,
+        )
+
+        run(['tc', 'qdisc', 'add', 'dev', dev, 'root', 'handle', '1:', 'prio'], sudo=sudo)
+        run(['tc', 'filter', 'add', 'dev', dev, 'handle', '1:1', 'cgroup'], sudo=sudo)
+
+        write_file('/sys/fs/cgroup/net_cls/net_cls.classid', '0x10002')
+        write_file('/sys/fs/cgroup/net_cls/test/net_cls.classid', '0x10001')
+
+        self.log(f"netem opts: {' '.join(netem_opts)}")
+        run(['tc', 'qdisc', 'replace', 'dev', dev, 'parent', '1:1', 'netem'] + netem_opts, sudo=sudo)
+
+    def cleanup(self, dev: str, sudo: bool):
+        run(['tc', 'qdisc', 'del', 'dev', dev, 'root'], sudo=sudo)
+
+
 def main() -> None:
     args = parse_args()
     netem_opts = build_netem_opts(args)
 
-    def log(msg: str):
-        if not args.quiet:
-            print(msg, file=sys.stderr)
+    runner = DevRunner(args.quiet)
 
     if args.interface:
         dev = args.interface
     else:
         dev = get_default_dev()
-        log(f"Using network interface: {dev}")
+        runner.log(f"Using network interface: {dev}")
 
     sudo = args.sudo
 
-    run(['modprobe', 'cls_cgroup'], sudo=sudo)
-    run(['mkdir', '-p', '/sys/fs/cgroup/net_cls'], sudo=sudo)
-
-    if not is_net_cls_mounted():
-        run(['mount', '-t', 'cgroup', '-o', 'net_cls', 'net_cls', '/sys/fs/cgroup/net_cls'], sudo=sudo)
-
-    run(['cgcreate', '-g', 'net_cls:test'], sudo=sudo)
-    run(['chown', f'{os.getuid()}:{os.getgid()}', '/sys/fs/cgroup/net_cls/test/tasks'], sudo=sudo)
-
-    # Delete existing qdisc, ignore errors
-    prefix = ['sudo'] if sudo else []
-    subprocess.run(
-        prefix + ['tc', 'qdisc', 'del', 'dev', dev, 'root'],
-        stderr=subprocess.DEVNULL,
-    )
-
-    run(['tc', 'qdisc', 'add', 'dev', dev, 'root', 'handle', '1:', 'prio'], sudo=sudo)
-    run(['tc', 'filter', 'add', 'dev', dev, 'handle', '1:1', 'cgroup'], sudo=sudo)
-
-    write_file('/sys/fs/cgroup/net_cls/net_cls.classid', '0x10002')
-    write_file('/sys/fs/cgroup/net_cls/test/net_cls.classid', '0x10001')
-
-    log(f"netem opts: {' '.join(netem_opts)}")
-    run(['tc', 'qdisc', 'replace', 'dev', dev, 'parent', '1:1', 'netem'] + netem_opts, sudo=sudo)
-
+    runner.prepare(dev=dev, netem_opts=netem_opts, sudo=sudo)
     try:
-        sys.exit(subprocess.run(['cgexec', '-g', 'net_cls:test'] + args.command).returncode)
+        sys.exit(runner.run(args.command))
     finally:
-        run(['tc', 'qdisc', 'del', 'dev', dev, 'root'], sudo=sudo)
+        runner.cleanup(dev=dev, sudo=sudo)
 
 
 if __name__ == '__main__':
