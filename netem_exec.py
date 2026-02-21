@@ -89,6 +89,12 @@ def parse_args() -> argparse.Namespace:
         help='reorder PERCENT [CORRELATION], e.g. --reorder 25%% (requires --delay)',
     )
     parser.add_argument(
+        '-q',
+        '--quiet',
+        action='store_true',
+        help='suppress informational output to stderr',
+    )
+    parser.add_argument(
         'command',
         nargs=argparse.REMAINDER,
         help='command to run (use -- to separate from netem options)',
@@ -129,11 +135,14 @@ def main() -> None:
     args = parse_args()
     netem_opts: List[str] = build_netem_opts(args)
 
-    print("Init cgroup...", file=sys.stderr)
+    def log(msg: str):
+        if not args.quiet:
+            print(msg, file=sys.stderr)
 
     dev = get_default_dev()
-    print(f"Using network device: {dev}", file=sys.stderr)
+    log(f"Using network device: {dev}")
 
+    log("Init cgroups...")
     run('modprobe', 'cls_cgroup')
     run('mkdir', '-p', '/sys/fs/cgroup/net_cls')
 
@@ -154,7 +163,7 @@ def main() -> None:
     write_file('/sys/fs/cgroup/net_cls/net_cls.classid', '0x10002')
     write_file('/sys/fs/cgroup/net_cls/test/net_cls.classid', '0x10001')
 
-    print('netem arguments: ' + ' '.join(netem_opts), file=sys.stderr)
+    log(f"netem opts: {' '.join(netem_opts)}")
     run('tc', 'qdisc', 'replace', 'dev', dev, 'parent', '1:1', 'netem', *netem_opts)
 
     try:
