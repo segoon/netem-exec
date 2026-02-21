@@ -80,6 +80,11 @@ def parse_args() -> argparse.Namespace:
         help='gap DISTANCE, e.g. --gap 5',
     )
     parser.add_argument(
+        '--rate',
+        metavar='RATE',
+        help='rate limit, e.g. --rate 1mbit',
+    )
+    parser.add_argument(
         '--reorder',
         nargs='+',
         metavar=('PERCENT', 'CORRELATION'),
@@ -128,6 +133,8 @@ def build_netem_opts(args: argparse.Namespace) -> List[str]:
         opts += ['corrupt'] + args.corrupt
     if args.gap:
         opts += ['gap', args.gap]
+    if args.rate:
+        opts += ['rate', args.rate]
     if args.reorder:
         opts += ['reorder'] + args.reorder
 
