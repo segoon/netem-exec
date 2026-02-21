@@ -40,9 +40,19 @@ PING 8.8.8.8 (8.8.8.8) 56(84) bytes of data.
 rtt min/avg/max/mdev = 220.076/221.360/222.304/0.922 ms
 ```
 
+Throttling `curl` to 100kbit/sec:
+```
+$ netem-exec --sudo --rate 100kbit -- curl http://cachefly.cachefly.net/10mb.test -o file
+Using network interface: tun0
+netem opts: rate 100kbit
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+100 10.0M  100 10.0M    0     0   525k      0  0:00:19  0:00:19 --:--:--  453k	
+```
+
 Help:
 ```
-$ ./netem-exec -h
+$ netem-exec -h
 usage: netem-exec [-h] [--delay TIME [JITTER ...]] [--distribution {uniform,normal,pareto,paretonormal}] [--loss PERCENT [CORRELATION ...]]
                   [--duplicate PERCENT [CORRELATION ...]] [--corrupt PERCENT [CORRELATION ...]] [--gap DISTANCE] [--rate RATE] [--reorder PERCENT [CORRELATION ...]]
                   [-s] [-i DEVICE] [-q]
