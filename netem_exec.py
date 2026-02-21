@@ -7,11 +7,10 @@ import sys
 from typing import List
 
 
-def run(*args: str) -> None:
-    cmd: List[str] = list(args)
-    result = subprocess.run(cmd)
+def run(args: List[str]) -> None:
+    result = subprocess.run(args)
     if result.returncode != 0:
-        print(f"Error: '{' '.join(cmd)}' exited with exit code {result.returncode}", file=sys.stderr)
+        print(f"Error: '{' '.join(args)}' exited with exit code {result.returncode}", file=sys.stderr)
         sys.exit(result.returncode)
 
 
@@ -139,7 +138,7 @@ def build_netem_opts(args: argparse.Namespace) -> List[str]:
 
 def main() -> None:
     args = parse_args()
-    netem_opts: List[str] = build_netem_opts(args)
+    netem_opts = build_netem_opts(args)
 
     def log(msg: str):
         if not args.quiet:
@@ -151,13 +150,13 @@ def main() -> None:
         dev = get_default_dev()
         log(f"Using network interface: {dev}")
 
-    run('modprobe', 'cls_cgroup')
-    run('mkdir', '-p', '/sys/fs/cgroup/net_cls')
+    run(['modprobe', 'cls_cgroup'])
+    run(['mkdir', '-p', '/sys/fs/cgroup/net_cls'])
 
     if not is_net_cls_mounted():
-        run('mount', '-t', 'cgroup', '-o', 'net_cls', 'net_cls', '/sys/fs/cgroup/net_cls')
+        run(['mount', '-t', 'cgroup', '-o', 'net_cls', 'net_cls', '/sys/fs/cgroup/net_cls'])
 
-    run('cgcreate', '-g', 'net_cls:test')
+    run(['cgcreate', '-g', 'net_cls:test'])
 
     # Delete existing qdisc, ignore errors
     subprocess.run(
@@ -165,14 +164,14 @@ def main() -> None:
         stderr=subprocess.DEVNULL,
     )
 
-    run('tc', 'qdisc', 'add', 'dev', dev, 'root', 'handle', '1:', 'prio')
-    run('tc', 'filter', 'add', 'dev', dev, 'handle', '1:1', 'cgroup')
+    run(['tc', 'qdisc', 'add', 'dev', dev, 'root', 'handle', '1:', 'prio'])
+    run(['tc', 'filter', 'add', 'dev', dev, 'handle', '1:1', 'cgroup'])
 
     write_file('/sys/fs/cgroup/net_cls/net_cls.classid', '0x10002')
     write_file('/sys/fs/cgroup/net_cls/test/net_cls.classid', '0x10001')
 
     log(f"netem opts: {' '.join(netem_opts)}")
-    run('tc', 'qdisc', 'replace', 'dev', dev, 'parent', '1:1', 'netem', *netem_opts)
+    run(['tc', 'qdisc', 'replace', 'dev', dev, 'parent', '1:1', 'netem'] + netem_opts)
 
     try:
         sys.exit(subprocess.run(['cgexec', '-g', 'net_cls:test'] + args.command).returncode)
