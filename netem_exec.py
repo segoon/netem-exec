@@ -28,13 +28,11 @@ def write_file(path: str, value: str) -> None:
 
 
 def get_default_dev() -> str:
-    result = subprocess.run(
+    stdout = subprocess.check_output(
         ['ip', 'route', 'get', '8.8.8.8'],
-        capture_output=True,
-        text=True,
-        check=True,
+        encoding='utf-8',
     )
-    tokens: List[str] = result.stdout.split()
+    tokens: List[str] = stdout.split()
     idx: int = tokens.index('dev')
     return tokens[idx + 1]
 
