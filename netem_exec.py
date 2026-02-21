@@ -156,7 +156,33 @@ class Runner:
         raise NotImplemented
 
 
-class DevRunner:
+class DevRunner(Runner):
+    def __init__(self, quiet: bool):
+        self._quiet = quiet
+
+    def log(self, msg: str):
+        if not self._quiet:
+            print(msg, file=sys.stderr)
+
+    def run(self, command: list[str]) -> int:
+        return subprocess.run(command).returncode
+
+    def prepare(self, dev: str, netem_opts: list[str], sudo: bool):
+        # Delete existing qdisc, ignore errors
+        prefix = ['sudo'] if sudo else []
+        subprocess.run(
+            prefix + ['tc', 'qdisc', 'del', 'dev', dev, 'root'],
+            stderr=subprocess.DEVNULL,
+        )
+
+        self.log(f"netem opts: {' '.join(netem_opts)}")
+        run(['tc', 'qdisc', 'add', 'dev', dev, 'root', 'netem'] + netem_opts, sudo=sudo)
+
+    def cleanup(self, dev: str, sudo: bool):
+        run(['tc', 'qdisc', 'del', 'dev', dev, 'root'], sudo=sudo)
+
+
+class ClassRunner(Runner):
     def __init__(self, quiet: bool):
         self._quiet = quiet
 
