@@ -49,9 +49,44 @@ def parse_args() -> argparse.Namespace:
         description='Run a command with netem network emulation applied.',
     )
     parser.add_argument(
-        '--netem',
-        required=True,
-        help='netem options, e.g. "delay 100ms loss 1%%"',
+        '--delay',
+        nargs='+',
+        metavar=('TIME', 'JITTER'),
+        help='delay TIME [JITTER [CORRELATION]], e.g. --delay 100ms 10ms',
+    )
+    parser.add_argument(
+        '--distribution',
+        choices=['uniform', 'normal', 'pareto', 'paretonormal'],
+        help='delay distribution (requires --delay)',
+    )
+    parser.add_argument(
+        '--loss',
+        nargs='+',
+        metavar=('PERCENT', 'CORRELATION'),
+        help='loss PERCENT [CORRELATION], e.g. --loss 1%%',
+    )
+    parser.add_argument(
+        '--duplicate',
+        nargs='+',
+        metavar=('PERCENT', 'CORRELATION'),
+        help='duplicate PERCENT [CORRELATION], e.g. --duplicate 0.1%%',
+    )
+    parser.add_argument(
+        '--corrupt',
+        nargs='+',
+        metavar=('PERCENT', 'CORRELATION'),
+        help='corrupt PERCENT [CORRELATION], e.g. --corrupt 0.1%%',
+    )
+    parser.add_argument(
+        '--gap',
+        metavar='DISTANCE',
+        help='gap DISTANCE, e.g. --gap 5',
+    )
+    parser.add_argument(
+        '--reorder',
+        nargs='+',
+        metavar=('PERCENT', 'CORRELATION'),
+        help='reorder PERCENT [CORRELATION], e.g. --reorder 25%% (requires --delay)',
     )
     parser.add_argument(
         'command',
@@ -63,12 +98,36 @@ def parse_args() -> argparse.Namespace:
         args.command = args.command[1:]
     if not args.command:
         parser.error('a command to run is required')
+    if args.distribution and not args.delay:
+        parser.error('--distribution requires --delay')
+    if args.reorder and not args.delay:
+        parser.error('--reorder requires --delay')
     return args
+
+
+def build_netem_opts(args: argparse.Namespace) -> List[str]:
+    opts: List[str] = []
+    if args.delay:
+        opts += ['delay'] + args.delay
+    if args.distribution:
+        opts += ['distribution', args.distribution]
+    if args.loss:
+        opts += ['loss'] + args.loss
+    if args.duplicate:
+        opts += ['duplicate'] + args.duplicate
+    if args.corrupt:
+        opts += ['corrupt'] + args.corrupt
+    if args.gap:
+        opts += ['gap', args.gap]
+    if args.reorder:
+        opts += ['reorder'] + args.reorder
+
+    return opts
 
 
 def main() -> None:
     args = parse_args()
-    netem_opts: List[str] = args.netem.split()
+    netem_opts: List[str] = build_netem_opts(args)
 
     print("Init cgroup...", file=sys.stderr)
 
@@ -92,10 +151,10 @@ def main() -> None:
     run('tc', 'qdisc', 'add', 'dev', dev, 'root', 'handle', '1:', 'prio')
     run('tc', 'filter', 'add', 'dev', dev, 'handle', '1:1', 'cgroup')
 
-    # TODO: status
     write_file('/sys/fs/cgroup/net_cls/net_cls.classid', '0x10002')
     write_file('/sys/fs/cgroup/net_cls/test/net_cls.classid', '0x10001')
 
+    print('netem arguments: ' + ' '.join(netem_opts), file=sys.stderr)
     run('tc', 'qdisc', 'replace', 'dev', dev, 'parent', '1:1', 'netem', *netem_opts)
 
     try:
