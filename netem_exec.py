@@ -32,8 +32,8 @@ def get_default_dev() -> str:
         ['ip', 'route', 'get', '8.8.8.8'],
         encoding='utf-8',
     )
-    tokens: List[str] = stdout.split()
-    idx: int = tokens.index('dev')
+    tokens = stdout.split()
+    idx = tokens.index('dev')
     return tokens[idx + 1]
 
 
