@@ -307,8 +307,10 @@ class ClassRunner(Runner):
     def cleanup(self, dev: str, sudo: bool):
         run(["tc", "qdisc", "del", "dev", dev, "root"], sudo=sudo)
 
+        # move all pids from the child cgroup to the paret cgroup
+        pids = pathlib.Path(f"/sys/fs/cgroup/{self._child_cgroup}/cgroup.procs").read_text()
         pathlib.Path(f"/sys/fs/cgroup/{self._parent_cgroup}/cgroup.procs").write_text(
-            str(os.getpid())
+            pids,
         )
         pathlib.Path(f"/sys/fs/cgroup/{self._child_cgroup}").rmdir()
 
